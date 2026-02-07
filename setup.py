@@ -13,7 +13,7 @@ setup(
                 "CFBundleVersion": "1.0.0",
             },
             "packages": ["rumps"],
-            "includes": ["ccusage_client", "config", "user_config", "preferences"],
+            "includes": ["ccusage_client", "config", "user_config", "preferences", "menu_formatter"],
             "excludes": [
                 "numpy",
                 "numba",

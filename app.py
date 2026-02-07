@@ -13,6 +13,7 @@ from preferences import (
     get_refresh_interval, set_refresh_interval,
     get_show_sections, set_show_sections
 )
+from menu_formatter import MenuFormatter
 
 INTERVAL_OPTIONS = [60, 120, 300, 600]
 INTERVAL_LABELS = {60: "1 min", 120: "2 min", 300: "5 min", 600: "10 min"}
@@ -101,11 +102,15 @@ class CcusageBar(rumps.App):
             if line is None:
                 self.menu.add(rumps.separator)
             elif isinstance(line, rumps.MenuItem):
-                # Already a MenuItem (like "View all" submenu)
+                # Already a MenuItem (like "View all" submenu or formatted item)
                 self.menu.add(line)
             else:
-                # No callback = disabled/non-interactive (no hover effect)
-                self.menu.add(rumps.MenuItem(line))
+                # Plain string - create MenuItem and apply formatting if it's a header
+                item = rumps.MenuItem(line)
+                if "━━━" in line:
+                    # Format section headers
+                    MenuFormatter.apply_to_menuitem(item, MenuFormatter.format_header(line))
+                self.menu.add(item)
         if lines:
             self.menu.add(rumps.separator)
         self.menu.add(self.status_item)
@@ -228,13 +233,25 @@ class CcusageBar(rumps.App):
 
         # Cost summary section with visual hierarchy
         lines.append("━━━ Cost ━━━")
-        lines.append(f"Today: {fmt(today_cost)} · {fmt_tokens(today_tokens)} tokens")
+
+        # Format "Today" with bold label
+        today_item = rumps.MenuItem(f"Today: {fmt(today_cost)} · {fmt_tokens(today_tokens)} tokens")
+        MenuFormatter.apply_to_menuitem(
+            today_item,
+            MenuFormatter.format_cost_summary("Today", fmt(today_cost), fmt_tokens(today_tokens))
+        )
+        lines.append(today_item)
 
         # Last 30 days summary
         if daily:
             total_cost = daily.get("totals", {}).get("totalCost", 0)
             total_tokens = daily.get("totals", {}).get("totalTokens", 0)
-            lines.append(f"Last 30 days: {fmt(total_cost)} · {fmt_tokens(total_tokens)} tokens")
+            last30_item = rumps.MenuItem(f"Last 30 days: {fmt(total_cost)} · {fmt_tokens(total_tokens)} tokens")
+            MenuFormatter.apply_to_menuitem(
+                last30_item,
+                MenuFormatter.format_cost_summary("Last 30 days", fmt(total_cost), fmt_tokens(total_tokens))
+            )
+            lines.append(last30_item)
 
         lines.append(None)
 
@@ -296,8 +313,8 @@ class CcusageBar(rumps.App):
         # Sort by cost (highest first)
         sorted_entries = sorted(entries, key=lambda x: x.get("totalCost", 0), reverse=True)
 
-        # Format top 5
-        top_5_lines = []
+        # Format top 5 with formatted MenuItems
+        top_5_items = []
         for e in sorted_entries[:5]:
             project_name = e.get("projectPath", e.get("sessionId", "?"))
             if project_name == "Unknown Project":
@@ -307,7 +324,24 @@ class CcusageBar(rumps.App):
                 project_name = project_name[:37] + "..."
             cost = e.get("totalCost", 0)
             tokens = e.get("totalTokens", 0)
-            top_5_lines.append(f"{project_name}: {fmt(cost)} · {fmt_tokens(tokens)}")
+
+            item = rumps.MenuItem(f"{project_name}: {fmt(cost)} · {fmt_tokens(tokens)}")
+
+            # Apply color threshold for high costs, otherwise normal formatting
+            if cost >= 5.0:
+                attr_str = MenuFormatter.format_with_color_threshold(
+                    f"{project_name}: {fmt(cost)} · {fmt_tokens(tokens)}",
+                    cost,
+                    threshold=5.0
+                )
+            else:
+                attr_str = MenuFormatter.format_project_line(
+                    project_name,
+                    fmt(cost),
+                    fmt_tokens(tokens)
+                )
+            MenuFormatter.apply_to_menuitem(item, attr_str)
+            top_5_items.append(item)
 
         # Create "View all" submenu if there are more than 5 projects
         if len(sorted_entries) > 5:
@@ -318,18 +352,26 @@ class CcusageBar(rumps.App):
                     project_name = e.get("sessionId", "?")
                 cost = e.get("totalCost", 0)
                 tokens = e.get("totalTokens", 0)
+
                 # No callback = disabled/non-interactive
                 item = rumps.MenuItem(f"{project_name}: {fmt(cost)} · {fmt_tokens(tokens)}")
+                # Format submenu items too
+                attr_str = MenuFormatter.format_project_line(
+                    project_name,
+                    fmt(cost),
+                    fmt_tokens(tokens)
+                )
+                MenuFormatter.apply_to_menuitem(item, attr_str)
                 view_all_menu.add(item)
-            return (top_5_lines, view_all_menu)
+            return (top_5_items, view_all_menu)
 
-        return (top_5_lines, None)
+        return (top_5_items, None)
 
     def _format_daily(self, data):
         if not data:
             return ["(no data)"]
         entries = data.get("daily", [])
-        lines = []
+        items = []
         today = date.today()
         yesterday = today - timedelta(days=1)
 
@@ -347,14 +389,17 @@ class CcusageBar(rumps.App):
             else:
                 label = d
 
-            lines.append(f"{label}: {fmt(cost)} · {fmt_tokens(tokens)}")
-        return lines
+            item = rumps.MenuItem(f"{label}: {fmt(cost)} · {fmt_tokens(tokens)}")
+            attr_str = MenuFormatter.format_cost_summary(label, fmt(cost), fmt_tokens(tokens))
+            MenuFormatter.apply_to_menuitem(item, attr_str)
+            items.append(item)
+        return items
 
     def _format_weekly(self, data):
         if not data:
             return ["(no data)"]
         entries = data.get("weekly", [])
-        lines = []
+        items = []
 
         # Calculate current and last week start dates (Sundays)
         today = date.today()
@@ -380,14 +425,17 @@ class CcusageBar(rumps.App):
             else:
                 label = w
 
-            lines.append(f"{label}: {fmt(cost)} · {fmt_tokens(tokens)}")
-        return lines
+            item = rumps.MenuItem(f"{label}: {fmt(cost)} · {fmt_tokens(tokens)}")
+            attr_str = MenuFormatter.format_cost_summary(label, fmt(cost), fmt_tokens(tokens))
+            MenuFormatter.apply_to_menuitem(item, attr_str)
+            items.append(item)
+        return items
 
     def _format_monthly(self, data):
         if not data:
             return ["(no data)"]
         entries = data.get("monthly", [])
-        lines = []
+        items = []
 
         # Calculate current and last month
         today = date.today()
@@ -409,8 +457,11 @@ class CcusageBar(rumps.App):
             else:
                 label = m
 
-            lines.append(f"{label}: {fmt(cost)} · {fmt_tokens(tokens)}")
-        return lines
+            item = rumps.MenuItem(f"{label}: {fmt(cost)} · {fmt_tokens(tokens)}")
+            attr_str = MenuFormatter.format_cost_summary(label, fmt(cost), fmt_tokens(tokens))
+            MenuFormatter.apply_to_menuitem(item, attr_str)
+            items.append(item)
+        return items
 
 
 if __name__ == "__main__":
