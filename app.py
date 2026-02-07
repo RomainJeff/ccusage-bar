@@ -332,8 +332,11 @@ class CcusageBar(rumps.App):
         # Cost summary section with visual hierarchy
         lines.append("━━━ Cost ━━━")
 
-        # Format "Today" with bold label
-        today_item = rumps.MenuItem(f"Today: {fmt(today_cost)} · {fmt_tokens(today_tokens)} tokens")
+        # Format "Today" with bold label (callback=lambda _: None makes it hoverable but not disabled)
+        today_item = rumps.MenuItem(
+            f"Today: {fmt(today_cost)} · {fmt_tokens(today_tokens)} tokens",
+            callback=lambda _: None
+        )
         MenuFormatter.apply_to_menuitem(
             today_item,
             MenuFormatter.format_cost_summary("Today", fmt(today_cost), fmt_tokens(today_tokens))
@@ -344,7 +347,10 @@ class CcusageBar(rumps.App):
         if daily:
             total_cost = daily.get("totals", {}).get("totalCost", 0)
             total_tokens = daily.get("totals", {}).get("totalTokens", 0)
-            last30_item = rumps.MenuItem(f"Last 30 days: {fmt(total_cost)} · {fmt_tokens(total_tokens)} tokens")
+            last30_item = rumps.MenuItem(
+                f"Last 30 days: {fmt(total_cost)} · {fmt_tokens(total_tokens)} tokens",
+                callback=lambda _: None
+            )
             MenuFormatter.apply_to_menuitem(
                 last30_item,
                 MenuFormatter.format_cost_summary("Last 30 days", fmt(total_cost), fmt_tokens(total_tokens))
@@ -423,7 +429,10 @@ class CcusageBar(rumps.App):
             cost = e.get("totalCost", 0)
             tokens = e.get("totalTokens", 0)
 
-            item = rumps.MenuItem(f"{project_name}: {fmt(cost)} · {fmt_tokens(tokens)}")
+            item = rumps.MenuItem(
+                f"{project_name}: {fmt(cost)} · {fmt_tokens(tokens)}",
+                callback=lambda _: None
+            )
 
             # Apply color threshold for high costs, otherwise normal formatting
             if cost >= 5.0:
@@ -451,8 +460,11 @@ class CcusageBar(rumps.App):
                 cost = e.get("totalCost", 0)
                 tokens = e.get("totalTokens", 0)
 
-                # No callback = disabled/non-interactive
-                item = rumps.MenuItem(f"{project_name}: {fmt(cost)} · {fmt_tokens(tokens)}")
+                # Hoverable but non-actionable
+                item = rumps.MenuItem(
+                    f"{project_name}: {fmt(cost)} · {fmt_tokens(tokens)}",
+                    callback=lambda _: None
+                )
                 # Format submenu items too
                 attr_str = MenuFormatter.format_project_line(
                     project_name,
@@ -487,7 +499,10 @@ class CcusageBar(rumps.App):
             else:
                 label = d
 
-            item = rumps.MenuItem(f"{label}: {fmt(cost)} · {fmt_tokens(tokens)}")
+            item = rumps.MenuItem(
+                f"{label}: {fmt(cost)} · {fmt_tokens(tokens)}",
+                callback=lambda _: None
+            )
             attr_str = MenuFormatter.format_cost_summary(label, fmt(cost), fmt_tokens(tokens))
             MenuFormatter.apply_to_menuitem(item, attr_str)
             items.append(item)
@@ -523,7 +538,10 @@ class CcusageBar(rumps.App):
             else:
                 label = w
 
-            item = rumps.MenuItem(f"{label}: {fmt(cost)} · {fmt_tokens(tokens)}")
+            item = rumps.MenuItem(
+                f"{label}: {fmt(cost)} · {fmt_tokens(tokens)}",
+                callback=lambda _: None
+            )
             attr_str = MenuFormatter.format_cost_summary(label, fmt(cost), fmt_tokens(tokens))
             MenuFormatter.apply_to_menuitem(item, attr_str)
             items.append(item)
@@ -555,7 +573,10 @@ class CcusageBar(rumps.App):
             else:
                 label = m
 
-            item = rumps.MenuItem(f"{label}: {fmt(cost)} · {fmt_tokens(tokens)}")
+            item = rumps.MenuItem(
+                f"{label}: {fmt(cost)} · {fmt_tokens(tokens)}",
+                callback=lambda _: None
+            )
             attr_str = MenuFormatter.format_cost_summary(label, fmt(cost), fmt_tokens(tokens))
             MenuFormatter.apply_to_menuitem(item, attr_str)
             items.append(item)

@@ -115,8 +115,13 @@ npx ccusage daily --json        # Verify ccusage works
 - **Headers**: 13pt bold (`━━━ Cost ━━━`)
 - **Labels**: 11pt bold (`Today:`, `Yesterday:`)
 - **Values**: 11pt normal (`$0.15`)
-- **Tokens**: 10pt normal (`· 1.2K tokens`)
-- **High costs**: Red color for projects ≥$5
+- **Tokens**: 10pt normal, gray color (`· 1.2K tokens`)
+- **High costs**: Red color for projects ≥$5 (primary info only, tokens stay gray)
+
+**Color scheme**:
+- **Primary info** (white/default): Labels, cost values, project names
+- **Secondary info** (gray): Token counts and separators (`·`)
+- Uses `NSColor.secondaryLabelColor()` which adapts to light/dark mode
 
 **Implementation**: Uses PyObjC to access `menuitem._menuitem.setAttributedTitle_()`
 

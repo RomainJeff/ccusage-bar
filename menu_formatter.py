@@ -20,6 +20,7 @@ class MenuFormatter:
 
     # Pre-created fonts for performance
     _font_cache = {}
+    _gray_color = None
 
     @classmethod
     def _get_font(cls, size, bold=False):
@@ -33,6 +34,13 @@ class MenuFormatter:
         return cls._font_cache[key]
 
     @classmethod
+    def _get_gray_color(cls):
+        """Get system gray color for secondary text (adapts to light/dark mode)"""
+        if cls._gray_color is None:
+            cls._gray_color = NSColor.secondaryLabelColor()
+        return cls._gray_color
+
+    @classmethod
     def format_header(cls, text):
         """Format a section header (e.g., '━━━ Cost ━━━')"""
         attr_string = NSMutableAttributedString.alloc().initWithString_(text)
@@ -43,7 +51,11 @@ class MenuFormatter:
 
     @classmethod
     def format_cost_summary(cls, label, cost_str, tokens_str=None):
-        """Format a cost summary line with bold label and normal values"""
+        """Format a cost summary line with bold label and normal values
+
+        Primary info (white): label and cost
+        Secondary info (gray): token count and separator
+        """
         if tokens_str:
             text = f"{label}: {cost_str} · {tokens_str} tokens"
         else:
@@ -59,7 +71,7 @@ class MenuFormatter:
             (0, label_len),
         )
 
-        # Normal cost value
+        # Normal cost value (primary info - white)
         cost_start = label_len + 1
         cost_end = cost_start + len(cost_str)
         attr_string.addAttribute_value_range_(
@@ -68,24 +80,34 @@ class MenuFormatter:
             (cost_start, cost_end - cost_start),
         )
 
-        # Smaller font for token count if present
+        # Smaller font + gray color for token count (secondary info)
         if tokens_str:
             token_start = text.find("·")
+            token_range = (token_start, len(text) - token_start)
             attr_string.addAttribute_value_range_(
                 NSFontAttributeName,
                 cls._get_font(cls.FONT_SIZE_SMALL),
-                (token_start, len(text) - token_start),
+                token_range,
+            )
+            attr_string.addAttribute_value_range_(
+                NSForegroundColorAttributeName,
+                cls._get_gray_color(),
+                token_range,
             )
 
         return attr_string
 
     @classmethod
     def format_project_line(cls, project_name, cost_str, tokens_str):
-        """Format a project line with emphasis on the project name"""
+        """Format a project line with emphasis on the project name
+
+        Primary info (white): project name and cost
+        Secondary info (gray): token count and separator
+        """
         text = f"{project_name}: {cost_str} · {tokens_str}"
         attr_string = NSMutableAttributedString.alloc().initWithString_(text)
 
-        # Normal font for project name
+        # Normal font for project name (primary info)
         project_len = len(project_name)
         attr_string.addAttribute_value_range_(
             NSFontAttributeName,
@@ -93,7 +115,7 @@ class MenuFormatter:
             (0, project_len),
         )
 
-        # Normal font for cost
+        # Normal font for cost (primary info)
         cost_start = project_len + 2
         cost_end = cost_start + len(cost_str)
         attr_string.addAttribute_value_range_(
@@ -102,33 +124,90 @@ class MenuFormatter:
             (cost_start, cost_end - cost_start),
         )
 
-        # Smaller font for tokens
+        # Smaller font + gray color for tokens (secondary info)
         token_start = text.find("·")
+        token_range = (token_start, len(text) - token_start)
         attr_string.addAttribute_value_range_(
             NSFontAttributeName,
             cls._get_font(cls.FONT_SIZE_SMALL),
-            (token_start, len(text) - token_start),
+            token_range,
+        )
+        attr_string.addAttribute_value_range_(
+            NSForegroundColorAttributeName,
+            cls._get_gray_color(),
+            token_range,
         )
 
         return attr_string
 
     @classmethod
     def format_with_color_threshold(cls, text, cost_value, threshold=5.0):
-        """Format text with color based on cost threshold (red for high costs)"""
+        """Format text with color based on cost threshold (red for high costs)
+
+        High-cost items (≥threshold):
+        - Primary info (project name, cost): red
+        - Secondary info (tokens): gray
+
+        Normal items:
+        - Primary info: white
+        - Secondary info: gray
+        """
         attr_string = NSMutableAttributedString.alloc().initWithString_(text)
-        range_all = (0, len(text))
 
-        # Set font
-        attr_string.addAttribute_value_range_(
-            NSFontAttributeName, cls._get_font(cls.FONT_SIZE_NORMAL), range_all
-        )
+        # Find the token separator if present
+        separator_pos = text.find("·")
+        has_tokens = separator_pos >= 0
 
-        # Set color if cost exceeds threshold
-        if cost_value >= threshold:
-            red_color = NSColor.colorWithRed_green_blue_alpha_(0.8, 0.2, 0.2, 1.0)
+        if has_tokens:
+            # Primary part: everything before "·"
+            primary_range = (0, separator_pos)
+            # Secondary part: "·" and everything after
+            secondary_range = (separator_pos, len(text) - separator_pos)
+
+            # Set fonts
             attr_string.addAttribute_value_range_(
-                NSForegroundColorAttributeName, red_color, range_all
+                NSFontAttributeName,
+                cls._get_font(cls.FONT_SIZE_NORMAL),
+                primary_range
             )
+            attr_string.addAttribute_value_range_(
+                NSFontAttributeName,
+                cls._get_font(cls.FONT_SIZE_SMALL),
+                secondary_range
+            )
+
+            # Set colors
+            if cost_value >= threshold:
+                # Red for primary info (high cost)
+                red_color = NSColor.colorWithRed_green_blue_alpha_(0.8, 0.2, 0.2, 1.0)
+                attr_string.addAttribute_value_range_(
+                    NSForegroundColorAttributeName,
+                    red_color,
+                    primary_range
+                )
+
+            # Gray for secondary info (tokens) - always
+            attr_string.addAttribute_value_range_(
+                NSForegroundColorAttributeName,
+                cls._get_gray_color(),
+                secondary_range
+            )
+        else:
+            # No tokens, just format the whole line
+            range_all = (0, len(text))
+            attr_string.addAttribute_value_range_(
+                NSFontAttributeName,
+                cls._get_font(cls.FONT_SIZE_NORMAL),
+                range_all
+            )
+
+            if cost_value >= threshold:
+                red_color = NSColor.colorWithRed_green_blue_alpha_(0.8, 0.2, 0.2, 1.0)
+                attr_string.addAttribute_value_range_(
+                    NSForegroundColorAttributeName,
+                    red_color,
+                    range_all
+                )
 
         return attr_string
 
