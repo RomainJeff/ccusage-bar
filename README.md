@@ -245,5 +245,5 @@ MIT
 ## Credits
 
 - Built with [rumps](https://github.com/jaredks/rumps)
-- Uses [ccusage](https://github.com/anthropics/ccusage) by Anthropic
+- Uses [ccusage](https://ccusage.com/) by Anthropic
 - Icon from [Icons8](https://icons8.com)
