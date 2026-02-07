@@ -6,6 +6,7 @@ setup(
     options={
         "py2app": {
             "argv_emulation": False,
+            "iconfile": "app-icon.icns",
             "plist": {
                 "LSUIElement": True,
                 "CFBundleName": "ccusage-bar",
