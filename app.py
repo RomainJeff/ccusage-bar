@@ -2,9 +2,10 @@ import rumps
 import threading
 import time
 import os
+import subprocess
 from datetime import datetime, date, timedelta
 from ccusage_client import get_daily, get_weekly, get_monthly, get_session
-from config import REFRESH_INTERVAL
+from config import REFRESH_INTERVAL, NPX_PATH
 from user_config import (
     SHOW_SESSION, SHOW_DAILY, SHOW_WEEKLY, SHOW_MONTHLY,
     SESSION_LIMIT, DAILY_LIMIT, WEEKLY_LIMIT, MONTHLY_LIMIT
@@ -51,6 +52,8 @@ class CcusageBar(rumps.App):
         self._last_refresh_display_time = 0
         self._pending_data = None
         self._data_lines = []
+        self._ccusage_available = None
+        self._installing_ccusage = False
 
         # Track what to show (load from preferences)
         saved_sections = get_show_sections({
@@ -94,7 +97,24 @@ class CcusageBar(rumps.App):
         self.refresh_btn = rumps.MenuItem("Refresh Now", callback=self._on_refresh)
 
         self._rebuild_menu([])
+        self._check_ccusage_availability()
         self._fetch_in_background()
+
+    def _check_ccusage_availability(self):
+        """Check if ccusage is installed and available"""
+        def worker():
+            try:
+                result = subprocess.run(
+                    [NPX_PATH, "ccusage", "--version"],
+                    capture_output=True,
+                    timeout=10,
+                    env={**os.environ, "PATH": os.path.dirname(NPX_PATH) + ":" + os.environ.get("PATH", "")}
+                )
+                self._ccusage_available = result.returncode == 0
+            except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+                self._ccusage_available = False
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _rebuild_menu(self, lines):
         self.menu.clear()
@@ -183,6 +203,79 @@ class CcusageBar(rumps.App):
         self.title = "loading…"
         self._fetch_in_background()
 
+    def _install_ccusage(self, _):
+        """Install ccusage via npm in background"""
+        if self._installing_ccusage:
+            return
+
+        self._installing_ccusage = True
+        self.title = "installing…"
+
+        def worker():
+            try:
+                # Install ccusage globally via npm
+                result = subprocess.run(
+                    [NPX_PATH, "npm", "install", "-g", "ccusage"],
+                    capture_output=True,
+                    timeout=120,
+                    env={**os.environ, "PATH": os.path.dirname(NPX_PATH) + ":" + os.environ.get("PATH", "")}
+                )
+
+                if result.returncode == 0:
+                    self._ccusage_available = True
+                    self.title = "installed ✓"
+                    # Wait a bit to show success message
+                    time.sleep(2)
+                    # Trigger a refresh
+                    self._fetch_in_background()
+                else:
+                    self._ccusage_available = False
+                    self.title = "install failed ✗"
+                    # Show error for a bit
+                    time.sleep(3)
+                    self.title = "$0.00"
+            except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+                self._ccusage_available = False
+                self.title = "install error ✗"
+                time.sleep(3)
+                self.title = "$0.00"
+            finally:
+                self._installing_ccusage = False
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_ccusage_not_found_menu(self):
+        """Display menu when ccusage is not installed"""
+        self.title = "⚠️ setup required"
+
+        lines = []
+        lines.append("━━━ ccusage not found ━━━")
+
+        # Installation status message
+        if self._installing_ccusage:
+            status_item = rumps.MenuItem("Installing ccusage via npm...")
+        else:
+            status_item = rumps.MenuItem("ccusage is required but not installed")
+
+        lines.append(status_item)
+        lines.append(None)
+
+        # Install button
+        if not self._installing_ccusage:
+            install_item = rumps.MenuItem("→ Install ccusage now", callback=self._install_ccusage)
+            MenuFormatter.apply_to_menuitem(
+                install_item,
+                MenuFormatter.format_header("→ Install ccusage now")
+            )
+            lines.append(install_item)
+            lines.append(None)
+
+        # Help text
+        help_item = rumps.MenuItem("Manual install: npm install -g ccusage")
+        lines.append(help_item)
+
+        self._rebuild_menu(lines)
+
     def _update_refresh_status(self):
         """Update the 'Last refresh' menu item to show time elapsed"""
         if self._last_refresh_display_time == 0:
@@ -224,6 +317,11 @@ class CcusageBar(rumps.App):
         weekly = data["weekly"]
         monthly = data["monthly"]
         session = data["session"]
+
+        # Check if ccusage is not available and all data is None
+        if self._ccusage_available is False and all(v is None for v in [daily, weekly, monthly, session]):
+            self._show_ccusage_not_found_menu()
+            return
 
         today_cost = self._today_cost(daily)
         today_tokens = self._today_tokens(daily)
