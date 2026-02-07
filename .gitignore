@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# macOS
+.DS_Store
+*.app
+
+# IDE
+.vscode/
+.idea/
+
+# App-specific
+claude-icon.png
+claude-icon-hd.png
+icon-22.png
