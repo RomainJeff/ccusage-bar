@@ -58,8 +58,8 @@ def get_daily():
     return run_ccusage("daily", ["--since", _since_date(DAILY_SINCE_DAYS)])
 
 
-def get_weekly():
-    return run_ccusage("weekly", ["--since", _since_date(WEEKLY_SINCE_DAYS)])
+def get_weekly(week_start_day="monday"):
+    return run_ccusage("weekly", ["--since", _since_date(WEEKLY_SINCE_DAYS), "--start-of-week", week_start_day])
 
 
 def get_monthly():

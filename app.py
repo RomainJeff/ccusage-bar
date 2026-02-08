@@ -3,6 +3,7 @@ import threading
 import time
 import os
 import subprocess
+import sys
 from datetime import datetime, date, timedelta
 from ccusage_client import get_daily, get_weekly, get_monthly, get_session
 from config import REFRESH_INTERVAL, NPX_PATH
@@ -12,9 +13,35 @@ from user_config import (
 )
 from preferences import (
     get_refresh_interval, set_refresh_interval,
-    get_show_sections, set_show_sections
+    get_show_sections, set_show_sections,
+    get_week_start_day, set_week_start_day
 )
 from menu_formatter import MenuFormatter
+
+# Simple debug logging to help diagnose issues
+DEBUG_LOG = os.path.expanduser("~/.ccusage-bar-debug.log")
+def debug_log(msg):
+    """Write debug message to log file (only keeps last 100 lines)"""
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_msg = f"[{timestamp}] {msg}\n"
+
+        # Read existing logs
+        if os.path.exists(DEBUG_LOG):
+            with open(DEBUG_LOG, 'r') as f:
+                lines = f.readlines()
+            lines = lines[-99:]  # Keep last 99 lines
+        else:
+            lines = []
+
+        # Append new message
+        lines.append(log_msg)
+
+        # Write back
+        with open(DEBUG_LOG, 'w') as f:
+            f.writelines(lines)
+    except:
+        pass  # Don't let logging errors crash the app
 
 INTERVAL_OPTIONS = [60, 120, 300, 600]
 INTERVAL_LABELS = {60: "1 min", 120: "2 min", 300: "5 min", 600: "10 min"}
@@ -67,6 +94,9 @@ class CcusageBar(rumps.App):
         self._show_weekly = saved_sections['weekly']
         self._show_monthly = saved_sections['monthly']
 
+        # Week start day preference
+        self._week_start_day = get_week_start_day("monday")
+
         # Refresh interval menu
         self.interval_menu = rumps.MenuItem("Refresh interval")
         self._interval_items = {}
@@ -93,10 +123,27 @@ class CcusageBar(rumps.App):
         self.config_menu.add(self.weekly_toggle)
         self.config_menu.add(self.monthly_toggle)
 
+        # Week start day menu
+        self.week_start_menu = rumps.MenuItem("Week starts on")
+        self.monday_toggle = rumps.MenuItem("Monday", callback=self._set_week_start_monday)
+        self.monday_toggle.state = self._week_start_day == "monday"
+        self.sunday_toggle = rumps.MenuItem("Sunday", callback=self._set_week_start_sunday)
+        self.sunday_toggle.state = self._week_start_day == "sunday"
+        self.week_start_menu.add(self.monday_toggle)
+        self.week_start_menu.add(self.sunday_toggle)
+
+        # Login item toggle
+        self.login_item_toggle = rumps.MenuItem(
+            "Start at Login",
+            callback=self._toggle_login_item
+        )
+        self._update_login_item_menu()
+
         self.status_item = rumps.MenuItem("Last refresh: never")
         self.refresh_btn = rumps.MenuItem("Refresh Now", callback=self._on_refresh)
 
         self._rebuild_menu([])
+        debug_log("App initialized, checking ccusage availability")
         self._check_ccusage_availability()
         self._fetch_in_background()
 
@@ -137,6 +184,9 @@ class CcusageBar(rumps.App):
         self.menu.add(self.refresh_btn)
         self.menu.add(self.interval_menu)
         self.menu.add(self.config_menu)
+        self.menu.add(self.week_start_menu)
+        self.menu.add(rumps.separator)
+        self.menu.add(self.login_item_toggle)
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("Quit", callback=rumps.quit_application))
 
@@ -144,6 +194,19 @@ class CcusageBar(rumps.App):
     def _tick(self, _):
         if time.time() - self._last_refresh_time >= self._refresh_interval:
             self._fetch_in_background()
+
+        # Detect stuck state: if refresh was triggered but no data received in 60s
+        # This catches cases where background thread hung or data processing failed
+        if self._last_refresh_time > 0:
+            time_since_refresh = time.time() - self._last_refresh_time
+            time_since_display = time.time() - self._last_refresh_display_time if self._last_refresh_display_time > 0 else 0
+
+            # If refresh was triggered >60s ago but display hasn't updated, we're stuck
+            if time_since_refresh > 60 and time_since_display > 60:
+                # Show stuck state indicator
+                if self.title not in ["⚠️ stuck", "⚠️ error", "loading…"]:
+                    self.title = "⚠️ stuck"
+
         # Update the "Last refresh" time display
         self._update_refresh_status()
 
@@ -191,10 +254,67 @@ class CcusageBar(rumps.App):
         if self._pending_data is None and hasattr(self, '_last_data'):
             self._apply_data(self._last_data)
 
+    def _set_week_start_monday(self, sender):
+        self._week_start_day = "monday"
+        self.monday_toggle.state = True
+        self.sunday_toggle.state = False
+        set_week_start_day("monday")
+        # Refresh data to get new week groupings
+        self._fetch_in_background()
+
+    def _set_week_start_sunday(self, sender):
+        self._week_start_day = "sunday"
+        self.monday_toggle.state = False
+        self.sunday_toggle.state = True
+        set_week_start_day("sunday")
+        # Refresh data to get new week groupings
+        self._fetch_in_background()
+
+    def _update_login_item_menu(self):
+        """Update the login item menu text and state based on current status"""
+        from login_item_manager import LoginItemManager
+        from ServiceManagement import SMAppServiceStatusRequiresApproval
+
+        is_registered, status, error = LoginItemManager.is_registered()
+
+        if status == SMAppServiceStatusRequiresApproval:
+            self.login_item_toggle.title = "Start at Login (approval needed)"
+            self.login_item_toggle.state = False
+        elif is_registered:
+            self.login_item_toggle.title = "Starts on login"
+            self.login_item_toggle.state = True
+        else:
+            self.login_item_toggle.title = "Start at Login"
+            self.login_item_toggle.state = False
+
+    def _toggle_login_item(self, sender):
+        """Toggle the app's login item status"""
+        from login_item_manager import LoginItemManager
+        import time
+        import threading
+
+        new_state, error = LoginItemManager.toggle()
+
+        if error:
+            # Show error in title bar briefly
+            old_title = self.title
+            self.title = "⚠️ login item error"
+
+            # Reset title after a few seconds
+            def reset_title():
+                time.sleep(3)
+                self.title = old_title
+
+            threading.Thread(target=reset_title, daemon=True).start()
+        else:
+            # Update menu to reflect new state
+            self._update_login_item_menu()
+
     @rumps.timer(2)
     def _check_pending(self, _):
         if self._pending_data is None:
             return
+        debug_log("Pending data detected, applying...")
         data = self._pending_data
         self._pending_data = None
         self._apply_data(data)
@@ -294,18 +414,35 @@ class CcusageBar(rumps.App):
 
     def _fetch_in_background(self):
         self._last_refresh_time = time.time()
+        debug_log("Starting background fetch")
 
         def worker():
-            daily = get_daily()
-            weekly = get_weekly()
-            monthly = get_monthly()
-            session = get_session()
-            self._pending_data = {
-                "daily": daily,
-                "weekly": weekly,
-                "monthly": monthly,
-                "session": session,
-            }
+            try:
+                daily = get_daily()
+                debug_log(f"Daily fetch complete: {daily is not None}")
+                weekly = get_weekly(self._week_start_day)
+                debug_log(f"Weekly fetch complete: {weekly is not None}")
+                monthly = get_monthly()
+                debug_log(f"Monthly fetch complete: {monthly is not None}")
+                session = get_session()
+                debug_log(f"Session fetch complete: {session is not None}")
+                self._pending_data = {
+                    "daily": daily,
+                    "weekly": weekly,
+                    "monthly": monthly,
+                    "session": session,
+                }
+                debug_log("All fetches complete, pending data set")
+            except Exception as e:
+                debug_log(f"Fetch error: {str(e)}")
+                # If fetch fails catastrophically, set error data
+                self._pending_data = {
+                    "daily": None,
+                    "weekly": None,
+                    "monthly": None,
+                    "session": None,
+                    "error": str(e)
+                }
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -313,19 +450,33 @@ class CcusageBar(rumps.App):
         # Store last data for toggle callbacks
         self._last_data = data
 
-        daily = data["daily"]
-        weekly = data["weekly"]
-        monthly = data["monthly"]
-        session = data["session"]
+        try:
+            daily = data["daily"]
+            weekly = data["weekly"]
+            monthly = data["monthly"]
+            session = data["session"]
 
-        # Check if ccusage is not available and all data is None
-        if self._ccusage_available is False and all(v is None for v in [daily, weekly, monthly, session]):
-            self._show_ccusage_not_found_menu()
+            # Check if ccusage is not available and all data is None
+            if self._ccusage_available is False and all(v is None for v in [daily, weekly, monthly, session]):
+                self._show_ccusage_not_found_menu()
+                return
+
+            today_cost = self._today_cost(daily)
+            today_tokens = self._today_tokens(daily)
+            self.title = fmt(today_cost)
+            debug_log(f"Applied data: today_cost=${today_cost:.2f}, today_tokens={today_tokens}")
+        except Exception as e:
+            debug_log(f"Error in _apply_data: {str(e)}")
+            # If _apply_data fails, show error state instead of staying stuck
+            self.title = "⚠️ error"
+            lines = [
+                "━━━ Error ━━━",
+                f"Failed to display data: {str(e)[:50]}",
+                None,
+                rumps.MenuItem("Try refreshing", callback=self._on_refresh)
+            ]
+            self._rebuild_menu(lines)
             return
-
-        today_cost = self._today_cost(daily)
-        today_tokens = self._today_tokens(daily)
-        self.title = fmt(today_cost)
 
         lines = []
 
@@ -514,11 +665,15 @@ class CcusageBar(rumps.App):
         entries = data.get("weekly", [])
         items = []
 
-        # Calculate current and last week start dates (Sundays)
+        # Calculate current and last week start dates
         today = date.today()
-        # Find the most recent Sunday
-        days_since_sunday = (today.weekday() + 1) % 7
-        this_week_start = today - timedelta(days=days_since_sunday)
+        if self._week_start_day == "monday":
+            # Find the most recent Monday (weekday() returns 0 for Monday)
+            days_since_week_start = today.weekday()
+        else:
+            # Find the most recent Sunday
+            days_since_week_start = (today.weekday() + 1) % 7
+        this_week_start = today - timedelta(days=days_since_week_start)
         last_week_start = this_week_start - timedelta(days=7)
 
         this_week_str = this_week_start.isoformat()

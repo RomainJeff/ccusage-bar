@@ -55,3 +55,16 @@ def set_show_sections(sections):
     prefs = load_preferences()
     prefs["show_sections"] = sections
     save_preferences(prefs)
+
+
+def get_week_start_day(default="monday"):
+    """Get the week start day (monday or sunday)"""
+    prefs = load_preferences()
+    return prefs.get("week_start_day", default)
+
+
+def set_week_start_day(day):
+    """Save the week start day (monday or sunday)"""
+    prefs = load_preferences()
+    prefs["week_start_day"] = day
+    save_preferences(prefs)
