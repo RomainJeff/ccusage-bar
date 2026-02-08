@@ -17,6 +17,7 @@ from preferences import (
     get_week_start_day, set_week_start_day
 )
 from menu_formatter import MenuFormatter
+from update_manager import UpdateManager
 
 # Simple debug logging to help diagnose issues
 DEBUG_LOG = os.path.expanduser("~/.ccusage-bar-debug.log")
@@ -82,6 +83,11 @@ class CcusageBar(rumps.App):
         self._ccusage_available = None
         self._installing_ccusage = False
 
+        # Update tracking
+        self._update_available = False
+        self._update_description = None
+        self._installing_update = False
+
         # Track what to show (load from preferences)
         saved_sections = get_show_sections({
             'session': SHOW_SESSION,
@@ -139,6 +145,12 @@ class CcusageBar(rumps.App):
         )
         self._update_login_item_menu()
 
+        # Update menu
+        self.check_updates_btn = rumps.MenuItem(
+            "Check for Updates",
+            callback=self._check_for_updates
+        )
+
         self.status_item = rumps.MenuItem("Last refresh: never")
         self.refresh_btn = rumps.MenuItem("Refresh Now", callback=self._on_refresh)
 
@@ -187,6 +199,18 @@ class CcusageBar(rumps.App):
         self.menu.add(self.week_start_menu)
         self.menu.add(rumps.separator)
         self.menu.add(self.login_item_toggle)
+        self.menu.add(rumps.separator)
+
+        # Update section
+        if self._update_available:
+            install_item = rumps.MenuItem(
+                f"→ Install Update: {self._update_description}",
+                callback=self._install_update
+            )
+            self.menu.add(install_item)
+        else:
+            self.menu.add(self.check_updates_btn)
+
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("Quit", callback=rumps.quit_application))
 
@@ -736,6 +760,72 @@ class CcusageBar(rumps.App):
             MenuFormatter.apply_to_menuitem(item, attr_str)
             items.append(item)
         return items
+
+    def _check_for_updates(self, _):
+        """Check for updates in background using GitHub API"""
+        if self._installing_update:
+            return
+
+        self.title = "checking…"
+
+        def worker():
+            has_update, description, error = UpdateManager.check_for_updates()
+
+            if error:
+                debug_log(f"Update check failed: {error}")
+                self.title = "⚠️ check failed"
+                time.sleep(2)
+                self.title = fmt(self._today_cost(self._last_data.get("daily")))
+                return
+
+            if not has_update:
+                self.title = "✓ up to date"
+                time.sleep(2)
+                self.title = fmt(self._today_cost(self._last_data.get("daily")))
+                return
+
+            # Update available
+            self._update_available = True
+            self._update_description = description
+            debug_log(f"Update available: {description}")
+
+            # Trigger menu rebuild
+            self._rebuild_menu(self._data_lines)
+            self.title = fmt(self._today_cost(self._last_data.get("daily")))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _install_update(self, _):
+        """Install update in background by cloning to temp directory"""
+        if self._installing_update:
+            return
+
+        self._installing_update = True
+        debug_log("Installing update...")
+
+        def progress(msg):
+            self.title = msg
+
+        def worker():
+            success, error = UpdateManager.install_update(progress_callback=progress)
+
+            if success:
+                debug_log("Update installed successfully")
+                self.title = "update ready ✓"
+                time.sleep(2)
+
+                # App will quit, user relaunches from /Applications/
+                # Preferences preserved automatically (~/.ccusage-bar-prefs.json)
+                rumps.quit_application()
+            else:
+                debug_log(f"Update failed: {error}")
+                self.title = "update failed"
+                time.sleep(3)
+                self.title = fmt(self._today_cost(self._last_data.get("daily")))
+                self._installing_update = False
+                self._update_available = False
+
+        threading.Thread(target=worker, daemon=True).start()
 
 
 if __name__ == "__main__":

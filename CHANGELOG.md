@@ -2,6 +2,53 @@
 
 ## [Unreleased] - 2026-02-08
 
+### Added - Git-Based Update System
+- **In-app update checking and installation**: Users can now update ccusage-bar directly from the menu
+  - Menu: "Check for Updates" button (above Quit)
+  - Click to check: Contacts GitHub API to check for latest commit
+  - If update available: Shows "→ Install Update: <commit message>" with one-click installation
+  - Update process: Downloads to `/tmp/`, builds automatically, installs to `/Applications/`, quits app
+  - User preferences automatically preserved (stored in `~/.ccusage-bar-prefs.json`)
+  - No source directory required - works from bundled app in `/Applications/`
+
+- **Implementation details**:
+  - New module: `update_manager.py` (~170 lines)
+    - `check_for_updates()`: Uses GitHub API to check latest commit (no local git needed)
+    - `install_update()`: Clones repo to temp dir, builds, installs, cleans up
+    - Uses `tempfile.mkdtemp()` for isolated builds
+    - Automatic cleanup with `shutil.rmtree()` in finally block
+    - Progress callbacks: "downloading…" → "building…" → "installing…" → "update ready ✓"
+  - Updated `app.py`:
+    - Import `UpdateManager` (line ~21)
+    - Added `self.check_updates_btn` menu item (line ~151-154)
+    - Added update tracking state variables (lines ~88-90)
+    - Added update menu items to `_rebuild_menu()` (lines ~207-214)
+    - New method `_check_for_updates()` (lines ~767-794): Background GitHub API check
+    - New method `_install_update()` (lines ~796-820): Background clone, build, install
+  - Updated `setup.py`: Added `update_manager` to includes list (line 17)
+  - Manual update script: `update.sh` (~35 lines)
+    - Git-based: checks local repo, pulls, rebuilds, reinstalls
+    - Requires source directory (unlike in-app method)
+    - Fallback for advanced users or if in-app update fails
+
+- **Update flow**:
+  1. User clicks "Check for Updates"
+  2. App fetches latest commit from GitHub API
+  3. Shows "→ Install Update: <commit message>"
+  4. User clicks to install
+  5. Clones repo to `/tmp/ccusage-bar-update-XXXX/`
+  6. Runs `build.sh` in temp directory
+  7. Copies built app to `/Applications/`
+  8. Deletes temp directory
+  9. Quits app (user relaunches manually)
+
+- **Technical advantages**:
+  - Zero configuration required (no path dialogs)
+  - Source directory can be deleted after initial install
+  - Fresh clone every update (no local modifications interfering)
+  - Automatic cleanup (temp dir always removed, even on errors)
+  - Works from bundled app with no development environment
+
 ### Added - Login Item Management
 - **Start at Login feature**: Users can now register ccusage-bar to start automatically at login
   - Menu: "Start at Login" menu item in preferences section (above Quit)

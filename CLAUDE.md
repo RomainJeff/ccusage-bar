@@ -37,6 +37,9 @@ python3 app.py                  # Run without building
 # Install
 cp -r dist/ccusage-bar.app /Applications/
 
+# Update
+./update.sh                     # Pull latest, rebuild, reinstall
+
 # Test ccusage
 npx ccusage daily --json        # Verify ccusage works
 ```
@@ -45,11 +48,12 @@ npx ccusage daily --json        # Verify ccusage works
 
 ### Core Components
 
-1. **app.py** (420 lines) - Main application
+1. **app.py** (~830 lines) - Main application
    - `CcusageBar(rumps.App)` - Main menu bar class
    - Background data fetching via threading
    - NSAttributedString formatting integration
    - Auto-install ccusage if missing
+   - In-app update checking and installation
    - Preferences persistence
 
 2. **menu_formatter.py** (158 lines) - Rich text formatting
@@ -66,7 +70,13 @@ npx ccusage daily --json        # Verify ccusage works
 
 4. **preferences.py** - Settings persistence
    - Saves to `~/.ccusage-bar-prefs.json`
-   - Refresh interval, section visibility
+   - Refresh interval, section visibility, week start day
+
+5. **update_manager.py** (~170 lines) - Update system
+   - `check_for_updates()` - GitHub API check
+   - `install_update()` - Clone to temp, build, install
+   - Zero configuration (no path management)
+   - Automatic cleanup of temp directories
 
 5. **config.py** - System configuration
    - NPX_PATH, REFRESH_INTERVAL constants
@@ -131,17 +141,26 @@ npx ccusage daily --json        # Verify ccusage works
 - One-click install: `npx npm install -g ccusage`
 - Progress feedback: "installing…" → "installed ✓" → auto-refresh
 
-### 3. Relative Dates
+### 3. In-App Updates
+- One-click update checking via GitHub API
+- Downloads, builds, and installs updates automatically
+- Clones to temp directory (`/tmp/`) for clean builds
+- Progress feedback: "checking…" → "downloading…" → "building…" → "installing…" → "update ready ✓"
+- No source directory required (works from bundled app)
+- Preferences preserved automatically
+- Manual fallback: `./update.sh` script
+
+### 4. Relative Dates
 - Daily: "Today", "Yesterday", then dates
 - Weekly: "This week", "Last week", then dates
 - Monthly: "This month", "Last month", then dates
 
-### 4. Smart Refresh
+### 5. Smart Refresh
 - Auto-refresh with configurable intervals (1m, 2m, 5m, 10m)
 - "X minutes ago" relative time display
 - Manual refresh button
 
-### 5. Preferences
+### 6. Preferences
 - Saved to `~/.ccusage-bar-prefs.json`
 - Refresh interval persistence
 - Section visibility toggles
@@ -158,7 +177,7 @@ from AppKit import NSFont, NSColor, NSFontAttributeName, NSForegroundColorAttrib
 ### py2app Bundle
 ```python
 # setup.py includes
-"includes": ["ccusage_client", "config", "user_config", "preferences", "menu_formatter"]
+"includes": ["ccusage_client", "config", "user_config", "preferences", "menu_formatter", "login_item_manager", "update_manager"]
 
 # Files are in python312.zip
 cd dist/ccusage-bar.app/Contents/Resources

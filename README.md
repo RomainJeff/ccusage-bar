@@ -226,6 +226,50 @@ npm install -g ccusage
 npx ccusage --version
 ```
 
+## Updates
+
+### Automatic Updates (In-App)
+
+The app can check for and install updates directly from the menu:
+
+1. **Check for updates:**
+   - Click the menu bar icon
+   - Select "Check for Updates"
+   - The app will check GitHub for the latest version
+
+2. **Install updates:**
+   - If an update is available, you'll see "→ Install Update: <description>"
+   - Click it to download, build, and install the new version
+   - The app will automatically quit when ready
+   - Relaunch the app from /Applications/
+
+**What happens during update:**
+- Downloads latest code to temporary directory (`/tmp/`)
+- Builds the new version automatically
+- Replaces the app in /Applications/
+- Cleans up temporary files
+- Your preferences are preserved automatically
+
+**Note:** Updates require internet access to GitHub.
+
+### Manual Updates (Script)
+
+For advanced users or if the in-app update fails:
+
+```bash
+cd /path/to/ccusage-bar
+./update.sh
+```
+
+This script will:
+- Check for updates via git
+- Pull latest changes
+- Rebuild the app
+- Install to /Applications/
+- Relaunch automatically
+
+**Note:** The manual update script requires the git repository to be present. The in-app update method does not require keeping the source directory.
+
 ### Updating
 
 To update to the latest version:
