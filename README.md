@@ -2,6 +2,9 @@
 
 macOS menu bar app showing Claude Code usage costs in USD.
 
+<img width="277" height="714" alt="image" src="https://github.com/user-attachments/assets/a02322ea-73ff-4c7f-bf55-aacc0d09d105" />
+
+
 ![Claude Code icon in menu bar](icon-44.png)
 
 ## Features
