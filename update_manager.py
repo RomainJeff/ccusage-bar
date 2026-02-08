@@ -11,7 +11,9 @@ import time
 import tempfile
 import shutil
 import urllib.request
+import urllib.error
 import json
+import ssl
 
 # GitHub repository URL
 # Note: Hardcoded for now. Could be made configurable via preferences later.
@@ -47,13 +49,22 @@ class UpdateManager:
         Example: (True, "Add user preferences for week start", None)
         """
         try:
+            # Install HTTPS handler explicitly (needed for some Python environments)
+            # This ensures urllib can handle HTTPS URLs
+            https_handler = urllib.request.HTTPSHandler()
+            opener = urllib.request.build_opener(https_handler)
+            urllib.request.install_opener(opener)
+
             # Fetch latest commit from GitHub API
             request = urllib.request.Request(
                 GITHUB_API_URL,
                 headers={"Accept": "application/vnd.github.v3+json"}
             )
 
-            with urllib.request.urlopen(request, timeout=10) as response:
+            # Create SSL context (needed for some Python environments)
+            context = ssl.create_default_context()
+
+            with urllib.request.urlopen(request, timeout=10, context=context) as response:
                 data = json.loads(response.read().decode())
 
             # Extract commit info
@@ -69,7 +80,7 @@ class UpdateManager:
         except urllib.error.URLError as e:
             return (False, None, f"Network error: {e.reason}")
         except Exception as e:
-            return (False, None, str(e))
+            return (False, None, f"{type(e).__name__}: {str(e)}")
 
     @staticmethod
     def install_update(progress_callback=None):
