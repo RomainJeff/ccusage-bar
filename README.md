@@ -81,7 +81,7 @@ Manual install: npm install -g ccusage
 
 1. **Clone the repository:**
    ```bash
-   git clone <repo-url>
+   git clone git@github.com:RomainJeff/ccusage-bar.git
    cd ccusage-bar
    ```
 
