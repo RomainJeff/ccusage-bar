@@ -268,7 +268,11 @@ a93b173 Update README with comprehensive documentation
 2. **Background threading** - Long operations must be async
 3. **Graceful degradation** - Handle None/errors elegantly
 4. **Format consistently** - Use MenuFormatter for all text
-5. **Update README** - Document new features
+5. **Update README FIRST** - Before committing, update README.md to document:
+   - New user-facing features in the "Features" section
+   - Configuration changes in the "Configuration" section
+   - New menu items or UI changes (update screenshots if needed)
+   - Troubleshooting notes for common issues
 
 ### When Fixing Bugs
 
@@ -322,12 +326,73 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 2. **Test bundled** - `./build.sh && open dist/ccusage-bar.app`
 3. **Check all sections** - Toggle each view
 4. **Verify formatting** - Headers, labels, colors
-5. **Update docs** - CLAUDE.md, README.md, MEMORY.md, CHANGELOG.md as needed
+5. **Update docs** - CRITICAL: Documentation is mandatory, not optional
+   - **README.md** - ALWAYS update for user-facing changes:
+     * New features → Add to "Features" section with description
+     * Config changes → Update "Configuration" section examples
+     * UI/menu changes → Update screenshots and descriptions
+     * New dependencies → Update "Prerequisites" section
+     * Breaking changes → Add to "Troubleshooting" section
    - **CHANGELOG.md** - Add entry for every feature, fix, or significant change
-   - Use "Unreleased" section for changes not yet in a tagged release
-   - Include technical details: file changes, line numbers, function names
-   - Document user-facing changes clearly
+     * Use "Unreleased" section for changes not yet in a tagged release
+     * Include technical details: file changes, line numbers, function names
+     * Document user-facing changes clearly
+   - **CLAUDE.md** - Update if architecture or patterns change
+   - **MEMORY.md** - Record learnings and gotchas for future sessions
 6. **Stage only relevant files** - Don't include unrelated changes in commit
+
+## README Maintenance Guidelines
+
+**CRITICAL**: The README is the user's primary documentation. Keep it accurate and current.
+
+### When to Update README
+
+**ALWAYS update for**:
+- ✅ New features or commands
+- ✅ Changed behavior visible to users
+- ✅ New configuration options
+- ✅ Dependency changes (Python version, new packages)
+- ✅ Installation or setup steps changes
+- ✅ New menu items or UI elements
+
+**Usually update for**:
+- ⚠️ Bug fixes that change behavior (not just internal fixes)
+- ⚠️ Performance improvements users will notice
+- ⚠️ New troubleshooting solutions
+
+**Don't need to update for**:
+- ❌ Internal refactoring (no user-visible changes)
+- ❌ Code comments or developer docs
+- ❌ CLAUDE.md or MEMORY.md updates
+
+### What to Update in README
+
+1. **Features section** (lines 9-38):
+   - Add new features with emoji headers
+   - Update existing features if behavior changes
+   - Keep formatting consistent (bold, bullets, descriptions)
+
+2. **Screenshots/Examples** (lines 40-71):
+   - Update menu text examples if format changes
+   - Note: Don't worry about exact costs/dates in examples
+
+3. **Configuration section** (lines 115-151):
+   - Add new config options to relevant subsection
+   - Update code examples if structure changes
+   - Document new default values
+
+4. **Troubleshooting section** (lines 215-241):
+   - Add solutions for new common issues
+   - Update instructions if fix procedures change
+
+### How to Verify README Accuracy
+
+Before committing, check:
+- [ ] All mentioned features actually exist in current code
+- [ ] Configuration examples match actual config file structure
+- [ ] Installation steps are complete and accurate
+- [ ] Code paths and file names are correct
+- [ ] No outdated information from previous versions
 
 ## File Reference
 
