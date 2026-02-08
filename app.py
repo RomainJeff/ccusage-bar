@@ -80,6 +80,7 @@ class CcusageBar(rumps.App):
         self._last_refresh_display_time = 0
         self._pending_data = None
         self._data_lines = []
+        self._last_data = {}  # Initialize to avoid AttributeError
         self._ccusage_available = None
         self._installing_ccusage = False
 
