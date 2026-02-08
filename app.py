@@ -203,9 +203,9 @@ class CcusageBar(rumps.App):
 
             # If refresh was triggered >60s ago but display hasn't updated, we're stuck
             if time_since_refresh > 60 and time_since_display > 60:
-                # Show stuck state indicator
-                if self.title not in ["⚠️ stuck", "⚠️ error", "loading…"]:
-                    self.title = "⚠️ stuck"
+                # Append stuck indicator to current price (if it's not already there)
+                if not self.title.endswith(" ⚠️") and self.title not in ["⚠️ error", "loading…"]:
+                    self.title = self.title + " ⚠️"
 
         # Update the "Last refresh" time display
         self._update_refresh_status()

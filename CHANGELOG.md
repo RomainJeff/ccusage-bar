@@ -54,7 +54,8 @@
   - Helps diagnose issues without cluttering console
 
 - **Stuck state detection**: Timer monitors if app is stuck in loading state
-  - If refresh triggered >60s ago but display hasn't updated, shows "⚠️ stuck" indicator
+  - If refresh triggered >60s ago but display hasn't updated, appends "⚠️" to current price (e.g., "$2.45 ⚠️")
+  - Shows stale price with warning indicator instead of replacing it
   - Helps identify when background thread hangs or data processing fails
   - Previously app could stay stuck on "$0.00" or "loading…" forever
 
@@ -124,7 +125,7 @@
   - Line 423: Pass `self._week_start_day` to `get_weekly()` in background fetch
   - Lines 668-677: Week calculation in `_format_weekly()` based on preference
   - Lines 116, 346-364, 382-408: Debug log calls
-  - Lines 158-168: Stuck state detection in `_tick()`
+  - Lines 158-169: Stuck state detection in `_tick()` - appends " ⚠️" to current title instead of replacing it
   - Lines 382-408: Error recovery in `_apply_data()`
   - Lines 365-374: Error recovery in `_fetch_in_background()`
 
