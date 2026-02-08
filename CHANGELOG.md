@@ -2,6 +2,117 @@
 
 ## [Unreleased] - 2026-02-08
 
+### Fixed - Symlink System Reliability for Multiple 1code Workspaces
+
+**Problem**: The symlink system became unreliable when users created many workspaces in 1code. Five critical bugs:
+1. Silent failures - OSError exceptions swallowed without logging
+2. No cleanup - Broken/stale symlinks accumulated over time
+3. Broken symlink detection bug - `os.path.exists()` returns False for broken symlinks, preventing recreation
+4. Name collisions - Multiple workspaces with same project name → only first was visible
+5. Performance issues - Glob scan ran 12x/hour with no caching
+
+**Solution**: Complete rewrite of symlink management in `ccusage_client.py` (71 lines → 232 lines)
+
+**Phase 1: Robustness improvements** (~140 lines new code):
+- **Added comprehensive debug logging**: New `_debug_log()` function writes to `~/.ccusage-bar-debug.log` with `[ccusage]` prefix
+  - Logs all symlink operations: creation, skipping, errors with specific types
+  - Summary stats: "Sync complete: created X, skipped Y, errors Z"
+  - Rotating log (keeps last 100 lines, same as app.py)
+
+- **Added broken symlink cleanup**: New `_cleanup_stale_symlinks()` function (lines 85-105)
+  - Runs BEFORE creating new symlinks
+  - Removes broken symlinks starting with "1code-"
+  - Uses `os.path.islink()` AND `not os.path.exists()` to detect broken links
+  - Logs each removal
+  - Returns count for summary logging
+
+- **Fixed broken symlink detection**: Replaced `os.path.exists()` with `os.path.lexists()` (line 149)
+  - `os.path.exists()` returns False for broken symlinks (bug)
+  - `os.path.lexists()` returns True for any symlink (even broken ones)
+  - Allows broken symlinks to be detected and recreated
+
+- **Added name collision handling**: Session ID suffix when duplicate project names detected (lines 158-171)
+  - Extracts session ID from path: `.../claude-sessions/<session_id>/projects/<project>`
+  - Appends first 8 chars to name: `1code-my-project-a3f8d2b4`
+  - Fallback to MD5 hash if path structure unexpected
+  - Logs collision: "Name collision for 'my-project', using: 1code-my-project-a3f8d2b4"
+  - All workspaces now visible instead of only first
+
+- **Comprehensive error handling**: Replaced broad `except OSError: pass` with specific exception types (lines 177-190)
+  - `FileExistsError`: Already exists (race condition)
+  - `PermissionError`: Permission denied with details
+  - `OSError`: Generic errors with errno
+  - Each error logged with context (symlink name, error message)
+  - Errors counted but don't stop processing of remaining symlinks
+
+- **Added directory creation**: `os.makedirs(CLAUDE_PROJECTS, exist_ok=True)` for fresh installs (lines 119-123)
+
+**Phase 2: Performance optimization** (~40 lines new code):
+- **Added caching system**: Module-level cache variables (lines 17-19)
+  - `_last_sync_time`: Timestamp of last sync (0 initially)
+  - `_last_workspace_snapshot`: Dict of workspace paths → mtimes
+
+- **Added cache check function**: New `_should_resync()` function (lines 50-82)
+  - Rate limiting: Only resync every 5 minutes minimum (300 seconds)
+  - Change detection: Compares workspace directory mtimes
+  - Returns False if workspaces unchanged (skips expensive glob)
+  - Returns True only if workspaces actually changed (new/deleted/modified)
+  - Logs workspace changes: "Workspace changes detected: X workspaces"
+
+- **Gated sync with cache**: `_sync_1code_symlinks()` checks cache first (lines 110-112)
+  - Returns immediately if cache says no changes
+  - Reduces glob scans from 12x/hour to ~1-2x/hour (90% reduction)
+  - Only scans when workspaces actually change
+
+**Technical details**:
+- **File**: `ccusage_client.py` completely rewritten
+  - Lines 1-10: Imports (added `time` and `hashlib`)
+  - Lines 12-22: Constants and cache variables (NEW)
+  - Lines 25-43: `_debug_log()` function (NEW)
+  - Lines 46-47: `_since_date()` unchanged
+  - Lines 50-82: `_should_resync()` function (NEW)
+  - Lines 85-105: `_cleanup_stale_symlinks()` function (NEW)
+  - Lines 108-193: `_sync_1code_symlinks()` rewritten (was lines 21-32)
+  - Lines 196-231: Other functions unchanged (`run_ccusage`, `get_daily`, etc.)
+
+- **Zero breaking changes**:
+  - Function signatures unchanged
+  - Calling code (`get_daily()` line 218) unchanged
+  - Other functions (weekly, monthly, session) unchanged
+  - No new dependencies (uses stdlib: `time`, `hashlib`)
+  - Compatible with py2app bundling
+
+**Benefits**:
+1. ✅ No silent failures - all errors logged with specific types
+2. ✅ Stale symlinks cleaned automatically before each sync
+3. ✅ Broken symlinks recreated successfully (lexists fix)
+4. ✅ Name collisions handled with session ID suffix
+5. ✅ Performance improved: 90% reduction in filesystem scans
+
+**Example log output**:
+```
+[2026-02-08 22:31:25] [ccusage] Cleanup: removed 2 broken symlinks
+[2026-02-08 22:31:25] [ccusage] Created symlink: 1code-my-project -> /Users/.../projects/my-project
+[2026-02-08 22:31:25] [ccusage] Name collision for 'my-project', using: 1code-my-project-def456ab
+[2026-02-08 22:31:25] [ccusage] Created symlink: 1code-my-project-def456ab -> /Users/.../projects/my-project
+[2026-02-08 22:31:25] [ccusage] Sync complete: created 26, skipped 4, errors 0
+```
+
+**Testing**:
+- ✅ App launches without errors
+- ✅ Broken symlinks automatically removed (test with `ln -s /nonexistent ~/.claude/projects/1code-test`)
+- ✅ Name collisions handled (multiple workspaces with same project name get unique symlinks)
+- ✅ Performance caching works (sync skipped within 5 minutes if no changes)
+- ✅ Specific error logging (PermissionError, FileExistsError logged separately)
+- ✅ Build succeeds (`./build.sh` completes without errors)
+
+**Migration notes**:
+- No user action required
+- Existing symlinks work unchanged
+- Broken symlinks automatically cleaned on first sync
+- New collision-suffix symlinks created on first sync if needed
+- Debug logs start appearing in `~/.ccusage-bar-debug.log`
+
 ### Added - Git-Based Update System
 - **In-app update checking and installation**: Users can now update ccusage-bar directly from the menu
   - Menu: "Check for Updates" button (above Quit)
