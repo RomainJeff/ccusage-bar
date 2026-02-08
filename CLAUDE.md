@@ -277,13 +277,57 @@ a93b173 Update README with comprehensive documentation
 3. **Test both modes** - Light and dark menu bar
 4. **Rebuild and test** - `./build.sh` before committing
 
+### After Completing Tasks
+
+**CRITICAL**: ALWAYS commit changes after finishing a task, even if the user doesn't explicitly request it.
+
+**Commit Guidelines**:
+1. **Keep commits atomic** - One logical change per commit
+   - ✅ Good: "Add week start day preference" (single feature)
+   - ✅ Good: "Fix token formatting in session view" (single bug fix)
+   - ❌ Bad: "Add feature X and fix bug Y" (multiple unrelated changes)
+
+2. **Commit immediately after task completion** - Don't wait for explicit user instruction
+   - After adding a feature → commit
+   - After fixing a bug → commit
+   - After refactoring → commit
+   - After updating docs → commit separately if not part of feature/fix
+
+3. **Write clear commit messages**:
+   - First line: Brief summary (50 chars or less)
+   - Blank line
+   - Detailed explanation if needed (wrap at 72 chars)
+   - Include Co-Authored-By line
+
+4. **When NOT to commit**:
+   - During exploratory work or investigation
+   - When user explicitly says not to
+   - When changes are incomplete or broken
+
+**Example workflow**:
+```bash
+# After completing feature
+git add <relevant files>
+git commit -m "Add configurable week start day preference
+
+Allow users to choose between Monday and Sunday as week start.
+Updates preferences.py with new setting and app.py to respect choice.
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+```
+
 ### Before Committing
 
 1. **Test locally** - `python3 app.py`
 2. **Test bundled** - `./build.sh && open dist/ccusage-bar.app`
 3. **Check all sections** - Toggle each view
 4. **Verify formatting** - Headers, labels, colors
-5. **Update docs** - CLAUDE.md, README.md, MEMORY.md as needed
+5. **Update docs** - CLAUDE.md, README.md, MEMORY.md, CHANGELOG.md as needed
+   - **CHANGELOG.md** - Add entry for every feature, fix, or significant change
+   - Use "Unreleased" section for changes not yet in a tagged release
+   - Include technical details: file changes, line numbers, function names
+   - Document user-facing changes clearly
+6. **Stage only relevant files** - Don't include unrelated changes in commit
 
 ## File Reference
 
@@ -301,7 +345,8 @@ a93b173 Update README with comprehensive documentation
 ### Documentation
 - `README.md` - User documentation (249 lines)
 - `CLAUDE.md` - This file (project reference)
-- `MEMORY.md` - Session memory (26 lines)
+- `MEMORY.md` - Session memory (auto-updated by Claude)
+- `CHANGELOG.md` - Version history and detailed change log
 
 ### Resources
 - `icon-44.png` - Menu bar icon (Retina)

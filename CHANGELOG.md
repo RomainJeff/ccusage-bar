@@ -2,6 +2,36 @@
 
 ## [Unreleased] - 2026-02-08
 
+### Added - Login Item Management
+- **Start at Login feature**: Users can now register ccusage-bar to start automatically at login
+  - Menu: "Start at Login" menu item in preferences section (above Quit)
+  - Click to toggle: "Start at Login" → "Starts on login" (with checkmark)
+  - Approval flow: Shows "(approval needed)" if user must approve in System Settings
+  - macOS 13+ (Ventura) required (uses modern SMAppService API)
+
+- **Implementation details**:
+  - New module: `login_item_manager.py` (143 lines)
+    - Uses `SMAppService.mainAppService()` PyObjC binding (not `.mainApp`)
+    - Methods: `is_registered()`, `register()`, `unregister()`, `toggle()`
+    - Status constants: 0=Not Registered, 1=Enabled, 2=Requires Approval, 3=Not Found
+  - Updated `app.py`:
+    - Added `self.login_item_toggle` menu item (line ~96-100)
+    - Added to menu rebuild in `_rebuild_menu()` (line ~189)
+    - New method `_update_login_item_menu()` (line ~203-217): Updates menu text/state
+    - New method `_toggle_login_item()` (line ~219-238): Handles toggle with error display
+  - Updated `requirements.txt`: Added `pyobjc-framework-ServiceManagement>=10.0`
+  - Updated `setup.py`: Added `login_item_manager` to includes list (line 17)
+  - Error handling: Shows temporary "⚠️ login item error" in title bar for 3 seconds
+  - Works best when app is in `/Applications/` directory
+
+### Changed - Development Guidelines
+- **Updated CLAUDE.md**: Added mandatory atomic commit policy for task completion
+  - New section: "After Completing Tasks" with commit guidelines
+  - Requires commits after every completed task (features, fixes, refactoring)
+  - Emphasizes keeping commits atomic (one logical change per commit)
+  - Added examples of good vs bad commit practices
+  - Updated "Before Committing" checklist to include staging only relevant files
+
 ### Added - Week Start Day Preference
 - **Week starts on setting**: Users can now choose whether weeks start on Monday or Sunday
   - Menu: "Week starts on" submenu with Monday/Sunday options (checkmarks show current selection)
