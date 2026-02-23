@@ -208,9 +208,17 @@ def run_ccusage(subcommand, extra_args=None):
             cwd=os.path.expanduser("~")
         )
         if result.returncode != 0:
+            _debug_log(f"ccusage {subcommand} failed (rc={result.returncode}): {result.stderr[:200]}")
             return None
         return json.loads(result.stdout)
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+    except subprocess.TimeoutExpired:
+        _debug_log(f"ccusage {subcommand} timed out after 30s")
+        return None
+    except json.JSONDecodeError as e:
+        _debug_log(f"ccusage {subcommand} invalid JSON: {e}")
+        return None
+    except FileNotFoundError:
+        _debug_log(f"ccusage {subcommand} binary not found: {NPX_PATH}")
         return None
 
 
