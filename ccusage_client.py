@@ -204,7 +204,7 @@ def run_ccusage(subcommand, extra_args=None):
 
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=30, env=env,
+            cmd, capture_output=True, text=True, timeout=120, env=env,
             cwd=os.path.expanduser("~")
         )
         if result.returncode != 0:
@@ -212,7 +212,7 @@ def run_ccusage(subcommand, extra_args=None):
             return None
         return json.loads(result.stdout)
     except subprocess.TimeoutExpired:
-        _debug_log(f"ccusage {subcommand} timed out after 30s")
+        _debug_log(f"ccusage {subcommand} timed out after 120s")
         return None
     except json.JSONDecodeError as e:
         _debug_log(f"ccusage {subcommand} invalid JSON: {e}")
