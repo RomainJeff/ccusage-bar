@@ -82,8 +82,8 @@ def _should_resync():
     return False
 
 
-def _cleanup_stale_symlinks():
-    """Remove broken 1code-* symlinks to prepare for fresh sync."""
+def _remove_all_1code_symlinks():
+    """Remove ALL 1code-* symlinks to prepare for a fresh rebuild."""
     if not os.path.isdir(CLAUDE_PROJECTS):
         return 0
 
@@ -93,11 +93,9 @@ def _cleanup_stale_symlinks():
             continue
 
         link = os.path.join(CLAUDE_PROJECTS, entry)
-        # Check if symlink exists but target doesn't (broken)
-        if os.path.islink(link) and not os.path.exists(link):
+        if os.path.islink(link):
             try:
                 os.unlink(link)
-                _debug_log(f"Removed broken symlink: {entry}")
                 removed += 1
             except OSError as e:
                 _debug_log(f"Failed to remove {entry}: {e}")
@@ -105,29 +103,33 @@ def _cleanup_stale_symlinks():
     return removed
 
 
+MAX_SESSIONS_PER_PROJECT = 20
+
+
 def _sync_1code_symlinks():
-    """Symlink 1code session JSONL files into ~/.claude/projects so ccusage can find them."""
-    # Check if resync needed (performance optimization)
+    """Symlink recent 1code session projects into ~/.claude/projects for ccusage.
+
+    Wipe-and-rebuild strategy: removes all existing 1code-* symlinks, then
+    recreates only the most recent MAX_SESSIONS_PER_PROJECT sessions per
+    unique project name.
+    """
     if not _should_resync():
-        return  # Skip sync if workspaces unchanged
+        return
 
     if not os.path.isdir(ONECODE_SESSIONS):
         _debug_log("1code sessions directory not found")
         return
 
-    # Ensure target directory exists
     try:
         os.makedirs(CLAUDE_PROJECTS, exist_ok=True)
     except OSError as e:
         _debug_log(f"Failed to create projects directory: {e}")
         return
 
-    # Step 1: Clean up broken symlinks first
-    removed = _cleanup_stale_symlinks()
-    if removed > 0:
-        _debug_log(f"Cleanup: removed {removed} broken symlinks")
+    # Step 1: Wipe all existing 1code symlinks
+    removed = _remove_all_1code_symlinks()
 
-    # Step 2: Scan for 1code workspaces
+    # Step 2: Scan and group by project name
     pattern = os.path.join(ONECODE_SESSIONS, "*/projects/*")
     session_dirs = glob.glob(pattern)
 
@@ -135,62 +137,45 @@ def _sync_1code_symlinks():
         _debug_log("No 1code workspaces found")
         return
 
+    # Group session dirs by project name, with mtime for sorting
+    projects = {}
+    for session_dir in session_dirs:
+        project_name = os.path.basename(session_dir)
+        try:
+            mtime = os.path.getmtime(session_dir)
+        except OSError:
+            continue
+        projects.setdefault(project_name, []).append((mtime, session_dir))
+
+    # Step 3: Keep only the N most recent sessions per project
     created = 0
     skipped = 0
     errors = 0
 
-    # Step 3: Create symlinks for each workspace project
-    for session_dir in session_dirs:
-        project_name = os.path.basename(session_dir)
-        name = "1code-" + project_name
-        link = os.path.join(CLAUDE_PROJECTS, name)
+    for project_name, sessions in projects.items():
+        # Sort by mtime descending, keep only the most recent
+        sessions.sort(reverse=True)
+        kept = sessions[:MAX_SESSIONS_PER_PROJECT]
+        skipped += len(sessions) - len(kept)
 
-        # Check if symlink already exists (use lexists to detect broken links too)
-        if os.path.lexists(link):
-            # Verify it points to correct target
-            if os.path.islink(link):
-                try:
-                    existing_target = os.readlink(link)
-                    if existing_target == session_dir:
-                        skipped += 1
-                        continue  # Already correct
+        for i, (_, session_dir) in enumerate(kept):
+            if i == 0:
+                name = "1code-" + project_name
+            else:
+                session_id = os.path.basename(os.path.dirname(os.path.dirname(session_dir)))
+                name = f"1code-{project_name}-{session_id[:8]}"
+            link = os.path.join(CLAUDE_PROJECTS, name)
 
-                    # Collision: different workspace, same project name
-                    # Extract session ID from path: .../claude-sessions/<session_id>/projects/<project>
-                    try:
-                        session_id = os.path.basename(os.path.dirname(os.path.dirname(session_dir)))
-                        name = f"1code-{project_name}-{session_id[:8]}"
-                        link = os.path.join(CLAUDE_PROJECTS, name)
-                        _debug_log(f"Name collision for '{project_name}', using: {name}")
-                    except (IndexError, AttributeError):
-                        # Fallback: use hash of full path if structure unexpected
-                        import hashlib
-                        session_id = hashlib.md5(session_dir.encode()).hexdigest()[:8]
-                        name = f"1code-{project_name}-{session_id}"
-                        link = os.path.join(CLAUDE_PROJECTS, name)
-                        _debug_log(f"Name collision for '{project_name}' (fallback hash), using: {name}")
-                except OSError as e:
-                    _debug_log(f"Failed to read existing symlink {name}: {e}")
-                    errors += 1
-                    continue
+            try:
+                os.symlink(session_dir, link)
+                created += 1
+            except FileExistsError:
+                pass
+            except OSError as e:
+                _debug_log(f"Failed to create symlink {name}: {e}")
+                errors += 1
 
-        # Create symlink
-        try:
-            os.symlink(session_dir, link)
-            _debug_log(f"Created symlink: {name} -> {session_dir}")
-            created += 1
-        except FileExistsError:
-            _debug_log(f"Symlink already exists (race condition?): {name}")
-            skipped += 1
-        except PermissionError as e:
-            _debug_log(f"Permission denied creating {name}: {e}")
-            errors += 1
-        except OSError as e:
-            _debug_log(f"Failed to create symlink {name}: {e} (errno: {e.errno})")
-            errors += 1
-
-    # Summary log
-    _debug_log(f"Sync complete: created {created}, skipped {skipped}, errors {errors}")
+    _debug_log(f"Sync: removed {removed}, created {created}, skipped_old {skipped}, errors {errors} ({len(projects)} projects)")
 
 
 def run_ccusage(subcommand, extra_args=None):
