@@ -83,6 +83,7 @@ class CcusageBar(rumps.App):
         self._last_data = {}  # Initialize to avoid AttributeError
         self._ccusage_available = None
         self._installing_ccusage = False
+        self._fetch_active = False
 
         # Update tracking
         self._update_available = False
@@ -438,6 +439,10 @@ class CcusageBar(rumps.App):
                 self.status_item.title = f"Last refresh: {minutes} minutes ago"
 
     def _fetch_in_background(self):
+        if self._fetch_active:
+            debug_log("Fetch already in progress, skipping")
+            return
+        self._fetch_active = True
         self._last_refresh_time = time.time()
         debug_log("Starting background fetch")
 
@@ -468,6 +473,8 @@ class CcusageBar(rumps.App):
                     "session": None,
                     "error": str(e)
                 }
+            finally:
+                self._fetch_active = False
 
         threading.Thread(target=worker, daemon=True).start()
 

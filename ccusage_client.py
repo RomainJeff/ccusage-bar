@@ -2,9 +2,10 @@ import subprocess
 import json
 import os
 import glob
+import signal
 import time
 from datetime import datetime, timedelta
-from config import NPX_PATH, CCUSAGE_PKG
+from config import NPX_PATH, CCUSAGE_PKG, SUBPROCESS_TIMEOUT
 from user_config import (
     DAILY_SINCE_DAYS, WEEKLY_SINCE_DAYS, MONTHLY_SINCE_DAYS, SESSION_SINCE_DAYS
 )
@@ -187,17 +188,30 @@ def run_ccusage(subcommand, extra_args=None):
     env["PATH"] = os.path.dirname(NPX_PATH) + ":" + env.get("PATH", "")
     env.pop("CLAUDE_CONFIG_DIR", None)
 
+    proc = None
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=120, env=env,
-            cwd=os.path.expanduser("~")
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            cwd=os.path.expanduser("~"),
+            start_new_session=True,
         )
-        if result.returncode != 0:
-            _debug_log(f"ccusage {subcommand} failed (rc={result.returncode}): {result.stderr[:200]}")
+        stdout, stderr = proc.communicate(timeout=SUBPROCESS_TIMEOUT)
+        if proc.returncode != 0:
+            _debug_log(f"ccusage {subcommand} failed (rc={proc.returncode}): {stderr[:200]}")
             return None
-        return json.loads(result.stdout)
+        return json.loads(stdout)
     except subprocess.TimeoutExpired:
-        _debug_log(f"ccusage {subcommand} timed out after 120s")
+        _debug_log(f"ccusage {subcommand} timed out after {SUBPROCESS_TIMEOUT}s")
+        if proc is not None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            proc.wait()
         return None
     except json.JSONDecodeError as e:
         _debug_log(f"ccusage {subcommand} invalid JSON: {e}")
