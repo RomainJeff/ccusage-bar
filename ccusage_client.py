@@ -109,7 +109,7 @@ def _remove_all_1code_symlinks():
     return removed
 
 
-MAX_SESSIONS_PER_PROJECT = 20
+MAX_SESSIONS_PER_PROJECT = 100
 
 
 def _sync_1code_symlinks():
