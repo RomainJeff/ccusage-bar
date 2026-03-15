@@ -4,4 +4,4 @@ NPX_PATH = "/Users/romainjeff/.nvm/versions/node/v25.0.0/bin/npx"
 
 CCUSAGE_PKG = "ccusage@18.0.9"
 
-SUBPROCESS_TIMEOUT = 30  # seconds - for ccusage subprocess calls
+SUBPROCESS_TIMEOUT = 120  # seconds - for ccusage subprocess calls
