@@ -4,16 +4,21 @@ import os
 import glob
 import signal
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 from config import NPX_PATH, CCUSAGE_PKG, SUBPROCESS_TIMEOUT
 from user_config import (
     DAILY_SINCE_DAYS, WEEKLY_SINCE_DAYS, MONTHLY_SINCE_DAYS, SESSION_SINCE_DAYS
 )
+from cache import init_db, get_meta, set_meta, upsert_daily_rows, get_daily_rows
+from cache_aggregator import build_daily_response, build_weekly_response, build_monthly_response
 
 ONECODE_SESSIONS = os.path.expanduser(
     "~/Library/Application Support/21st-desktop/claude-sessions"
 )
 CLAUDE_PROJECTS = os.path.expanduser("~/.claude/projects")
+
+# SQLite cache for historical data
+_cache_available = init_db()
 
 # Cache for symlink sync to avoid redundant scans
 _last_sync_time = 0
@@ -221,18 +226,85 @@ def run_ccusage(subcommand, extra_args=None):
         return None
 
 
+def _since_date_iso(days):
+    """Return ISO date string (YYYY-MM-DD) for N days ago, for SQLite queries."""
+    return (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+
+def _needs_full_fetch():
+    """True if this is the first fetch of today (or cache is unavailable)."""
+    if not _cache_available:
+        return True
+    last_date = get_meta("last_full_fetch_date")
+    return last_date != date.today().isoformat()
+
+
 def get_daily():
     _sync_1code_symlinks()
+
+    if not _cache_available:
+        return run_ccusage("daily", ["--since", _since_date(DAILY_SINCE_DAYS)])
+
+    if _needs_full_fetch():
+        # First fetch of the day: full historical fetch
+        _debug_log("Full daily fetch (first of the day)")
+        result = run_ccusage("daily", ["--since", _since_date(DAILY_SINCE_DAYS)])
+        if result is None:
+            # ccusage failed — serve from cache if possible
+            entries = get_daily_rows(_since_date_iso(DAILY_SINCE_DAYS))
+            if entries:
+                _debug_log(f"Serving {len(entries)} daily rows from cache (ccusage failed)")
+                return build_daily_response(entries)
+            return None
+        # Store all rows in cache
+        daily_entries = result.get("daily", [])
+        if daily_entries:
+            upsert_daily_rows(daily_entries)
+        set_meta("last_full_fetch_date", date.today().isoformat())
+        return result
+
+    # Subsequent fetches: today only
+    _debug_log("Today-only daily fetch")
+    today_arg = date.today().strftime("%Y%m%d")
+    today_result = run_ccusage("daily", ["--since", today_arg])
+    if today_result is not None:
+        today_entries = today_result.get("daily", [])
+        if today_entries:
+            upsert_daily_rows(today_entries)
+
+    # Assemble full response from cache
+    entries = get_daily_rows(_since_date_iso(DAILY_SINCE_DAYS))
+    if entries:
+        return build_daily_response(entries)
+
+    # Cache empty somehow — fall back to full fetch
     return run_ccusage("daily", ["--since", _since_date(DAILY_SINCE_DAYS)])
 
 
 def get_weekly(week_start_day="monday"):
+    if not _cache_available:
+        return run_ccusage("weekly", ["--since", _since_date(WEEKLY_SINCE_DAYS), "--start-of-week", week_start_day])
+
+    entries = get_daily_rows(_since_date_iso(WEEKLY_SINCE_DAYS))
+    if entries:
+        return build_weekly_response(entries, week_start_day)
+
+    # Cache empty — fall back to ccusage
     return run_ccusage("weekly", ["--since", _since_date(WEEKLY_SINCE_DAYS), "--start-of-week", week_start_day])
 
 
 def get_monthly():
+    if not _cache_available:
+        return run_ccusage("monthly", ["--since", _since_date(MONTHLY_SINCE_DAYS)])
+
+    entries = get_daily_rows(_since_date_iso(MONTHLY_SINCE_DAYS))
+    if entries:
+        return build_monthly_response(entries)
+
+    # Cache empty — fall back to ccusage
     return run_ccusage("monthly", ["--since", _since_date(MONTHLY_SINCE_DAYS)])
 
 
 def get_session():
+    # Sessions are always fetched live (ongoing, not cacheable)
     return run_ccusage("session", ["--since", _since_date(SESSION_SINCE_DAYS)])

@@ -27,6 +27,7 @@ macOS menu bar app showing Claude Code usage costs in USD.
 - **"X minutes ago"** relative refresh time display
 - **Manual refresh** button in menu
 - **Stuck state detection** with warning indicator (⚠️) if data fetch hangs
+- **SQLite cache** for historical data — only today's usage is fetched live, past days served from cache
 
 ### ⚙️ **Configuration**
 - **Persistent preferences** saved to `~/.ccusage-bar-prefs.json`
@@ -388,7 +389,9 @@ python3 app.py
 ```
 ccusage-bar/
 ├── app.py              # Main rumps application
-├── ccusage_client.py   # ccusage CLI wrapper
+├── ccusage_client.py   # ccusage CLI wrapper (with SQLite cache)
+├── cache.py            # SQLite cache for historical data
+├── cache_aggregator.py # Weekly/monthly aggregation from cached daily rows
 ├── menu_formatter.py   # NSAttributedString formatting
 ├── config.py           # System config (npx path, etc.)
 ├── user_config.py      # User-editable configuration

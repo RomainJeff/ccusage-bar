@@ -1,5 +1,52 @@
 # Changelog
 
+## [Unreleased] - 2026-03-15
+
+### Added - SQLite Cache for Historical Data
+
+**Problem**: Every refresh cycle (1-10 min) launched 4 ccusage subprocess calls, each re-reading JSONL files going back 30-180 days. Historical data (past days) never changes, making this redundant.
+
+**Solution**: Store daily cost/token data in a local SQLite database (`~/.ccusage-bar-cache.db`). On the first refresh of each day, do a full historical fetch and cache it. For subsequent refreshes, only fetch today's data from ccusage.
+
+**New files**:
+- `cache.py` (~110 lines): SQLite persistence layer
+  - Schema: `daily_rows` (date, cost, tokens, raw JSON) + `cache_meta` (key-value)
+  - WAL mode for concurrent reads
+  - Schema migration support (drop+recreate on version bump)
+  - Silent error handling (app falls back to live fetching if cache fails)
+- `cache_aggregator.py` (~55 lines): Reconstructs weekly/monthly structures from cached daily rows
+  - `build_weekly_response()`: Groups daily entries by week (respects monday/sunday preference)
+  - `build_monthly_response()`: Groups daily entries by month
+  - Output format identical to ccusage CLI output
+
+**Modified files**:
+- `ccusage_client.py`: Cache-aware `get_daily()`, `get_weekly()`, `get_monthly()`
+  - `_needs_full_fetch()`: Detects first fetch of the day via `last_full_fetch_date` in cache_meta
+  - `get_daily()`: Full fetch on first call of day, today-only fetch after
+  - `get_weekly()`/`get_monthly()`: Serve from cached daily rows (aggregated), fallback to ccusage
+  - `get_session()`: Unchanged (always live, sessions are ongoing)
+- `setup.py`: Added `cache`, `cache_aggregator` to py2app includes
+
+**Performance improvement**:
+| Scenario | Before | After |
+|----------|--------|-------|
+| First fetch of the day | 4 subprocess (full range) | 2 subprocess (1 full daily + 1 session) |
+| Subsequent fetches | 4 subprocess (full range) | 2 subprocess (1 today-only + 1 session) |
+
+**Cache location**: `~/.ccusage-bar-cache.db`
+
+**Edge cases handled**:
+- First run (empty cache): Full fetch, populates cache
+- Midnight crossover: `date.today()` changes → next fetch is full
+- App restart mid-day: `last_full_fetch_date` persists → today-only fetch
+- Cache corruption/deleted: `init_db()` returns False → full fallback to ccusage
+- Week start day change: Daily rows re-aggregated with new grouping (no invalidation needed)
+- ccusage failure: Serves cached data if available
+
+**Zero changes to `app.py`** — cache layer is fully transparent.
+
+---
+
 ## [Unreleased] - 2026-02-08
 
 ### Fixed - Symlink System Reliability for Multiple 1code Workspaces

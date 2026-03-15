@@ -62,17 +62,33 @@ npx ccusage daily --json        # Verify ccusage works
    - Font sizes: 13pt (headers), 11pt (normal), 10pt (tokens)
    - Color threshold for high costs (≥$5 = red)
 
-3. **ccusage_client.py** - CLI wrapper
+3. **ccusage_client.py** - CLI wrapper with SQLite caching
    - `run_ccusage(subcommand)` - Subprocess wrapper
    - `get_daily()`, `get_weekly()`, `get_monthly()`, `get_session()`
+   - Cache-aware: first fetch of day = full, subsequent = today-only
+   - Weekly/monthly served from cached daily rows (no subprocess)
+   - Session always live (ongoing sessions not cacheable)
    - Syncs 1code sessions to ~/.claude/projects
    - Returns None on error (graceful degradation)
 
-4. **preferences.py** - Settings persistence
+4. **cache.py** (~110 lines) - SQLite persistence for historical data
+   - DB at `~/.ccusage-bar-cache.db` with WAL mode
+   - `daily_rows` table: one row per calendar date (date, cost, tokens, raw JSON)
+   - `cache_meta` table: `last_full_fetch_date`, `schema_version`
+   - `init_db()`, `upsert_daily_rows()`, `get_daily_rows()`
+   - Schema migration via version check (drop+recreate)
+   - Silent error handling (cache failure = fallback to live fetching)
+
+5. **cache_aggregator.py** (~55 lines) - Weekly/monthly from daily rows
+   - `build_daily_response()`, `build_weekly_response()`, `build_monthly_response()`
+   - Aggregation respects `week_start_day` preference (monday/sunday)
+   - Output format identical to ccusage CLI (transparent to app.py)
+
+6. **preferences.py** - Settings persistence
    - Saves to `~/.ccusage-bar-prefs.json`
    - Refresh interval, section visibility, week start day
 
-5. **update_manager.py** (~170 lines) - Update system
+7. **update_manager.py** (~170 lines) - Update system
    - `check_for_updates()` - GitHub API check
    - `install_update()` - Clone to temp, build, install
    - Zero configuration (no path management)
@@ -92,9 +108,15 @@ npx ccusage daily --json        # Verify ccusage works
 1. Timer triggers (every 10s) → _tick()
 2. If interval elapsed → _fetch_in_background()
 3. Background thread:
-   - get_daily/weekly/monthly/session()
-   - Each calls run_ccusage() subprocess
-   - Returns JSON or None
+   a. get_daily():
+      - First fetch of day → run_ccusage("daily", --since 30d), store in SQLite
+      - Subsequent → run_ccusage("daily", --since today), upsert today, assemble from cache
+   b. get_weekly():
+      - Read daily rows from SQLite (60d), aggregate by week via cache_aggregator
+   c. get_monthly():
+      - Read daily rows from SQLite (180d), aggregate by month via cache_aggregator
+   d. get_session():
+      - Always live: run_ccusage("session") subprocess
 4. Sets self._pending_data
 5. _check_pending() (every 2s) → _apply_data()
 6. _apply_data():
@@ -102,6 +124,10 @@ npx ccusage daily --json        # Verify ccusage works
    - Builds menu items (MenuItem objects)
    - Calls _rebuild_menu()
 7. Menu displays with formatting
+
+Cache: ~/.ccusage-bar-cache.db (SQLite, daily_rows + cache_meta)
+First fetch of day: 2 subprocess calls (full daily + session)
+Subsequent fetches: 2 subprocess calls (today-only daily + session)
 ```
 
 ### ccusage JSON Schema
@@ -418,7 +444,9 @@ Before committing, check:
 ### Source Files
 - `app.py` - Main application (420 lines)
 - `menu_formatter.py` - Formatting helper (158 lines)
-- `ccusage_client.py` - CLI wrapper (71 lines)
+- `ccusage_client.py` - CLI wrapper with SQLite caching
+- `cache.py` - SQLite persistence (~110 lines)
+- `cache_aggregator.py` - Weekly/monthly aggregation (~55 lines)
 - `preferences.py` - Settings persistence (64 lines)
 - `config.py` - System config (7 lines)
 - `user_config.py` - User settings (18 lines)
