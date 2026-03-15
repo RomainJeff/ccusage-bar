@@ -112,57 +112,14 @@ def _remove_all_1code_symlinks():
 MAX_SESSIONS_PER_PROJECT = 100
 
 
-def _sync_1code_symlinks():
-    """Symlink recent 1code session projects into ~/.claude/projects for ccusage.
-
-    Wipe-and-rebuild strategy: removes all existing 1code-* symlinks, then
-    recreates only the most recent MAX_SESSIONS_PER_PROJECT sessions per
-    unique project name.
-    """
-    if not _should_resync():
-        return
-
-    if not os.path.isdir(ONECODE_SESSIONS):
-        _debug_log("1code sessions directory not found")
-        return
-
-    try:
-        os.makedirs(CLAUDE_PROJECTS, exist_ok=True)
-    except OSError as e:
-        _debug_log(f"Failed to create projects directory: {e}")
-        return
-
-    # Step 1: Wipe all existing 1code symlinks
-    removed = _remove_all_1code_symlinks()
-
-    # Step 2: Scan and group by project name
-    pattern = os.path.join(ONECODE_SESSIONS, "*/projects/*")
-    session_dirs = glob.glob(pattern)
-
-    if not session_dirs:
-        _debug_log("No 1code workspaces found")
-        return
-
-    # Group session dirs by project name, with mtime for sorting
-    projects = {}
-    for session_dir in session_dirs:
-        project_name = os.path.basename(session_dir)
-        try:
-            mtime = os.path.getmtime(session_dir)
-        except OSError:
-            continue
-        projects.setdefault(project_name, []).append((mtime, session_dir))
-
-    # Step 3: Keep only the N most recent sessions per project
+def _create_symlinks(projects):
+    """Create symlinks for a dict of {project_name: [(mtime, session_dir), ...]}."""
     created = 0
-    skipped = 0
     errors = 0
 
     for project_name, sessions in projects.items():
-        # Sort by mtime descending, keep only the most recent
         sessions.sort(reverse=True)
         kept = sessions[:MAX_SESSIONS_PER_PROJECT]
-        skipped += len(sessions) - len(kept)
 
         for i, (_, session_dir) in enumerate(kept):
             if i == 0:
@@ -181,7 +138,95 @@ def _sync_1code_symlinks():
                 _debug_log(f"Failed to create symlink {name}: {e}")
                 errors += 1
 
-    _debug_log(f"Sync: removed {removed}, created {created}, skipped_old {skipped}, errors {errors} ({len(projects)} projects)")
+    return created, errors
+
+
+def _scan_session_dirs(only_today=False):
+    """Scan 1code session dirs. If only_today, filter to sessions modified today."""
+    pattern = os.path.join(ONECODE_SESSIONS, "*/projects/*")
+    session_dirs = glob.glob(pattern)
+
+    if not session_dirs:
+        return {}
+
+    if only_today:
+        today_start = datetime.combine(date.today(), datetime.min.time()).timestamp()
+    else:
+        today_start = 0
+
+    projects = {}
+    for session_dir in session_dirs:
+        project_name = os.path.basename(session_dir)
+        try:
+            mtime = os.path.getmtime(session_dir)
+        except OSError:
+            continue
+        if only_today and mtime < today_start:
+            continue
+        projects.setdefault(project_name, []).append((mtime, session_dir))
+
+    return projects
+
+
+def _sync_1code_symlinks_full():
+    """Full sync: wipe all 1code-* symlinks and recreate from all sessions.
+
+    Used for the first fetch of the day (full historical analysis).
+    """
+    if not _should_resync():
+        return
+
+    if not os.path.isdir(ONECODE_SESSIONS):
+        _debug_log("1code sessions directory not found")
+        return
+
+    try:
+        os.makedirs(CLAUDE_PROJECTS, exist_ok=True)
+    except OSError as e:
+        _debug_log(f"Failed to create projects directory: {e}")
+        return
+
+    removed = _remove_all_1code_symlinks()
+    projects = _scan_session_dirs(only_today=False)
+
+    if not projects:
+        _debug_log("No 1code workspaces found")
+        return
+
+    total_sessions = sum(len(s) for s in projects.values())
+    created, errors = _create_symlinks(projects)
+    skipped = total_sessions - created - errors
+
+    _debug_log(f"Full sync: removed {removed}, created {created}, skipped {skipped}, errors {errors} ({len(projects)} projects)")
+
+
+def _sync_1code_symlinks_today():
+    """Today-only sync: wipe and recreate symlinks only for sessions active today.
+
+    Used for subsequent fetches (today-only data).
+    """
+    if not _should_resync():
+        return
+
+    if not os.path.isdir(ONECODE_SESSIONS):
+        return
+
+    try:
+        os.makedirs(CLAUDE_PROJECTS, exist_ok=True)
+    except OSError as e:
+        _debug_log(f"Failed to create projects directory: {e}")
+        return
+
+    removed = _remove_all_1code_symlinks()
+    projects = _scan_session_dirs(only_today=True)
+
+    if not projects:
+        _debug_log("No 1code workspaces active today")
+        return
+
+    created, errors = _create_symlinks(projects)
+
+    _debug_log(f"Today sync: removed {removed}, created {created}, errors {errors} ({len(projects)} projects)")
 
 
 def run_ccusage(subcommand, extra_args=None):
@@ -240,13 +285,13 @@ def _needs_full_fetch():
 
 
 def get_daily():
-    _sync_1code_symlinks()
-
     if not _cache_available:
+        _sync_1code_symlinks_full()
         return run_ccusage("daily", ["--since", _since_date(DAILY_SINCE_DAYS)])
 
     if _needs_full_fetch():
-        # First fetch of the day: full historical fetch
+        # First fetch of the day: all symlinks + full historical fetch
+        _sync_1code_symlinks_full()
         _debug_log("Full daily fetch (first of the day)")
         result = run_ccusage("daily", ["--since", _since_date(DAILY_SINCE_DAYS)])
         if result is None:
@@ -263,7 +308,8 @@ def get_daily():
         set_meta("last_full_fetch_date", date.today().isoformat())
         return result
 
-    # Subsequent fetches: today only
+    # Subsequent fetches: today's symlinks only + today's data only
+    _sync_1code_symlinks_today()
     _debug_log("Today-only daily fetch")
     today_arg = date.today().strftime("%Y%m%d")
     today_result = run_ccusage("daily", ["--since", today_arg])
@@ -278,6 +324,7 @@ def get_daily():
         return build_daily_response(entries)
 
     # Cache empty somehow — fall back to full fetch
+    _sync_1code_symlinks_full()
     return run_ccusage("daily", ["--since", _since_date(DAILY_SINCE_DAYS)])
 
 
@@ -306,5 +353,5 @@ def get_monthly():
 
 
 def get_session():
-    # Sessions are always fetched live (ongoing, not cacheable)
+    # Sessions are always fetched live — symlinks already set by get_daily()
     return run_ccusage("session", ["--since", _since_date(SESSION_SINCE_DAYS)])
