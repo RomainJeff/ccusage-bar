@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] - 2026-03-18
+
+### Fixed - Historical costs no longer change daily
+
+**Problem**: Costs displayed for past days kept changing every morning. On the first fetch of each new day, `ccusage daily --since 30d` returned slightly different values for historical dates (ccusage recalculates based on current session state). The `INSERT OR REPLACE` in `upsert_daily_rows()` blindly overwrote all cached rows, including stable historical data.
+
+**Solution**: Changed `upsert_daily_rows()` in `cache.py` to use `INSERT OR IGNORE` for past days (dates before today) and `INSERT OR REPLACE` only for today's row. Once a day is complete and cached, its cost is considered final and never overwritten.
+
+**Technical details**:
+- `cache.py`: `upsert_daily_rows()` now checks `entry_date >= today_str` to decide between REPLACE (today) and IGNORE (past)
+- `cache.py`: Bumped `SCHEMA_VERSION` from 1 to 2 to force a fresh cache on first launch after update (purges previously unstable historical values)
+- No changes to `ccusage_client.py` — the callers work correctly with the new default behavior
+
+**Behavior change**:
+- Before: Past days' costs could shift daily as ccusage recalculated them
+- After: Past days are locked in cache on first observation; only today updates in real-time
+
+---
+
 ## [Unreleased] - 2026-03-15
 
 ### Added - SQLite Cache for Historical Data

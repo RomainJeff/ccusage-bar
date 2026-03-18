@@ -12,7 +12,7 @@ import os
 from datetime import datetime, date
 
 DB_PATH = os.path.expanduser("~/.ccusage-bar-cache.db")
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _connect():
@@ -97,22 +97,38 @@ def set_meta(key, value):
 
 
 def upsert_daily_rows(entries):
-    """Insert or replace daily rows from ccusage JSON entries."""
+    """Insert or update daily rows from ccusage JSON entries.
+
+    Past days already in cache are never overwritten (INSERT OR IGNORE).
+    Today's row is always updated (INSERT OR REPLACE) since it's still accumulating.
+    """
     try:
         now = datetime.now().isoformat()
+        today_str = date.today().isoformat()
         with _connect() as conn:
             for entry in entries:
-                conn.execute("""
-                    INSERT OR REPLACE INTO daily_rows
-                        (date, total_cost, total_tokens, raw_json, fetched_at)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (
-                    entry["date"],
+                entry_date = entry["date"]
+                values = (
+                    entry_date,
                     entry.get("totalCost", 0.0),
                     entry.get("totalTokens", 0),
                     json.dumps(entry),
                     now,
-                ))
+                )
+                if entry_date >= today_str:
+                    # Today (or future): always overwrite
+                    conn.execute("""
+                        INSERT OR REPLACE INTO daily_rows
+                            (date, total_cost, total_tokens, raw_json, fetched_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, values)
+                else:
+                    # Past day: only insert if not already cached
+                    conn.execute("""
+                        INSERT OR IGNORE INTO daily_rows
+                            (date, total_cost, total_tokens, raw_json, fetched_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, values)
             conn.commit()
     except Exception:
         pass
